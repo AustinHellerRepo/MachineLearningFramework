@@ -1,0 +1,10 @@
+LICENSE
+pyproject.toml
+setup.cfg
+src/austin_heller_repo/__init__.py
+src/austin_heller_repo/machine_learning_framework.py
+src/machine_learning_framework_austinhellerrepo.egg-info/PKG-INFO
+src/machine_learning_framework_austinhellerrepo.egg-info/SOURCES.txt
+src/machine_learning_framework_austinhellerrepo.egg-info/dependency_links.txt
+src/machine_learning_framework_austinhellerrepo.egg-info/requires.txt
+src/machine_learning_framework_austinhellerrepo.egg-info/top_level.txt
