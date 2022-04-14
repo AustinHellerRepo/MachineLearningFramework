@@ -145,8 +145,8 @@ class DatasetTest(unittest.TestCase):
 				tensor_cache_directory_path=tensor_directory_path
 			)
 
-			tensor_cache_category_set = dataset.get_tensor_cache_category_set(
+			tensor_cache_category_sets = dataset.get_tensor_cache_category_sets(
 				tensor_cache_directory_path=tensor_directory_path
 			)
 
-			self.assertIsNotNone(tensor_cache_category_set)
+			self.assertNotEqual(0, len(tensor_cache_category_sets))

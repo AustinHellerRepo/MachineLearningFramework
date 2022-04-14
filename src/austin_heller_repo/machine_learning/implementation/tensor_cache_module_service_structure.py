@@ -2,6 +2,7 @@ from __future__ import annotations
 import torch
 import copy
 import uuid
+from datetime import datetime
 from austin_heller_repo.threading import Semaphore
 from austin_heller_repo.socket_queued_message_framework import StructureFactory
 from src.austin_heller_repo.machine_learning.common import ModuleInput, ModuleOutput, FloatTensorModuleInput, LongTensorModuleOutput, FloatTensorModuleOutput
@@ -69,6 +70,7 @@ class TensorCacheModuleServiceStructure(ServiceStructure):
 		return module_output
 
 	def add_training_data(self, *, category_set_name: str, category_subset_name: str, module_input: ModuleInput, module_output: ModuleOutput, purpose: TrainingDataPurposeTypeEnum):
+
 		if isinstance(module_input, FloatTensorModuleInput):
 			input_tensor = module_input.get_float_tensor()
 		else:
@@ -86,18 +88,20 @@ class TensorCacheModuleServiceStructure(ServiceStructure):
 
 		self.__tensor_cache_semaphore.acquire()
 		try:
-			tensor_cache_category_set = self.__tensor_cache.get_tensor_cache_category_set(
+			tensor_cache_category_sets = self.__tensor_cache.get_tensor_cache_category_sets(
 				name=category_set_name,
 				input_tensor_size=input_tensor_size,
 				output_tensor_size=output_tensor_size
 			)
 
-			if tensor_cache_category_set is None:
+			if len(tensor_cache_category_sets) == 0:
 				tensor_cache_category_set = self.__tensor_cache.create_tensor_cache_category_set(
 					name=category_set_name,
 					input_tensor_size=tuple(input_tensor.shape),
 					output_tensor_size=tuple(output_tensor.shape)
 				)
+			else:
+				tensor_cache_category_set = tensor_cache_category_sets[0]
 
 			tensor_cache_category_subset = tensor_cache_category_set.get_tensor_cache_category_subset_by_name(
 				name=category_subset_name

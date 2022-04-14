@@ -6,6 +6,7 @@ import torch
 import numpy as np
 import os
 import kaggle
+from datetime import datetime
 import PIL.Image
 from src.austin_heller_repo.machine_learning.framework import TensorCache, TensorCacheCategorySet, TensorCacheCategorySubset, TensorCacheCategorySubsetCycle, TensorCacheCategorySubsetCycleRunner, TensorCacheCategorySubsetSequence, TensorCacheElement, TensorCacheElementLookup, get_float_tensor_from_image, ModuleTrainer, Conv2dToLinearToRecurrentToLinearModule, get_index_from_character, get_character_from_index, CharacterSetEnum, CharacterIndexOutOfRangeException, CharacterNotFoundException, english_character_set
 from austin_heller_repo.common import StringEnum
@@ -221,8 +222,8 @@ class TensorCacheTest(unittest.TestCase):
 
 		tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
 			name="nabeel965/handwritten-words-dataset",
-			input_tensor_size=(146, 80),
-			output_tensor_size=(None,)
+			input_tensor_size=(1, 80, 146),
+			output_tensor_size=(7,)
 		)
 
 		capital_boxing_tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
@@ -230,7 +231,7 @@ class TensorCacheTest(unittest.TestCase):
 			output_tensor=torch.FloatTensor([get_index_from_character(
 				character=x,
 				character_set=CharacterSetEnum.English
-			) for x in "BOXING"])
+			) for x in "BOXING"] + [0])
 		)
 
 		capital_boxing_directory_path = os.path.join(dataset_directory_path, "Capital", "BOXING", "BOXING")
@@ -263,11 +264,7 @@ class TensorCacheTest(unittest.TestCase):
 
 		tensor_cache.clear()
 
-		tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
-			name="nabeel965/handwritten-words-dataset",
-			input_tensor_size=(146, 80),
-			output_tensor_size=(None,)
-		)
+		input_tensor_size = (1, 80, 146)
 
 		word_directory_path_per_word = {}  # type: Dict[str, str]
 		for subset_name in ["Capital", "small"]:
@@ -275,15 +272,29 @@ class TensorCacheTest(unittest.TestCase):
 				word_directory_path = os.path.join(dataset_directory_path, subset_name, directory_name, directory_name)
 				word_directory_path_per_word[directory_name] = word_directory_path
 
+		tensor_cache_category_set_per_output_tensor_size = {}  # type: Dict[Tuple[int, ...], TensorCacheCategorySet]
+
 		for word, word_directory_path in word_directory_path_per_word.items():
-			capital_boxing_tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
+			output_tensor = torch.LongTensor([
+				get_index_from_character(
+					character=x,
+					character_set=CharacterSetEnum.English
+				) for x in word
+			] + [0])
+
+			output_tensor_size = tuple(output_tensor.shape)
+			if output_tensor_size not in tensor_cache_category_set_per_output_tensor_size:
+				tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
+					name="nabeel965/handwritten-words-dataset",
+					input_tensor_size=input_tensor_size,
+					output_tensor_size=output_tensor_size
+				)
+				tensor_cache_category_set_per_output_tensor_size[output_tensor_size] = tensor_cache_category_set
+
+			tensor_cache_category_set = tensor_cache_category_set_per_output_tensor_size[output_tensor_size]
+			tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
 				name=word,
-				output_tensor=torch.LongTensor([
-					get_index_from_character(
-						character=x,
-						character_set=CharacterSetEnum.English
-					) for x in word
-				] + [0])
+				output_tensor=output_tensor
 			)
 
 			for file_name in os.listdir(word_directory_path):
@@ -292,7 +303,7 @@ class TensorCacheTest(unittest.TestCase):
 				image_tensor = get_float_tensor_from_image(
 					image=image
 				)
-				capital_boxing_tensor_cache_category_subset.create_tensor_cache_element_input(
+				tensor_cache_category_subset.create_tensor_cache_element_input(
 					input_tensor=image_tensor
 				)
 
@@ -328,7 +339,8 @@ class TensorCacheTest(unittest.TestCase):
 			module_trainer.train(
 				module_input=module_input,
 				learn_rate=0.1,
-				maximum_batch_size=1
+				maximum_batch_size=1,
+				epochs=1
 			)
 
 		finally:
@@ -346,11 +358,7 @@ class TensorCacheTest(unittest.TestCase):
 
 		tensor_cache.clear()
 
-		tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
-			name="nabeel965/handwritten-words-dataset",
-			input_tensor_size=(146, 80),
-			output_tensor_size=(None,)
-		)
+		input_tensor_size = (1, 80, 146)
 
 		word_directory_path_per_word = {}  # type: Dict[str, str]
 		for subset_name in ["Capital", "small"]:
@@ -358,15 +366,29 @@ class TensorCacheTest(unittest.TestCase):
 				word_directory_path = os.path.join(dataset_directory_path, subset_name, directory_name, directory_name)
 				word_directory_path_per_word[directory_name] = word_directory_path
 
+		tensor_cache_category_set_per_output_tensor_size = {}  # type: Dict[Tuple[int, ...], TensorCacheCategorySet]
+
 		for word, word_directory_path in word_directory_path_per_word.items():
-			capital_boxing_tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
+			output_tensor = torch.LongTensor([
+				get_index_from_character(
+					character=x,
+					character_set=CharacterSetEnum.English
+				) for x in word
+			] + [0])
+
+			output_tensor_size = tuple(output_tensor.shape)
+			if output_tensor_size not in tensor_cache_category_set_per_output_tensor_size:
+				tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
+					name="nabeel965/handwritten-words-dataset",
+					input_tensor_size=input_tensor_size,
+					output_tensor_size=output_tensor_size
+				)
+				tensor_cache_category_set_per_output_tensor_size[output_tensor_size] = tensor_cache_category_set
+
+			tensor_cache_category_set = tensor_cache_category_set_per_output_tensor_size[output_tensor_size]
+			tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
 				name=word,
-				output_tensor=torch.LongTensor([
-					get_index_from_character(
-						character=x,
-						character_set=CharacterSetEnum.English
-					) for x in word
-				] + [0])
+				output_tensor=output_tensor
 			)
 
 			for file_name in os.listdir(word_directory_path):
@@ -375,7 +397,7 @@ class TensorCacheTest(unittest.TestCase):
 				image_tensor = get_float_tensor_from_image(
 					image=image
 				)
-				capital_boxing_tensor_cache_category_subset.create_tensor_cache_element_input(
+				tensor_cache_category_subset.create_tensor_cache_element_input(
 					input_tensor=image_tensor
 				)
 
@@ -390,7 +412,7 @@ class TensorCacheTest(unittest.TestCase):
 				],
 				recurrent_hidden_length=len(english_character_set) * 2,
 				recurrent_to_output_lengths=[
-					len(english_character_set),
+					len(english_character_set) * 2,
 					len(english_character_set)
 				]
 			),
@@ -401,7 +423,7 @@ class TensorCacheTest(unittest.TestCase):
 
 		module_input = TensorCacheCategorySubsetCycleRunner(
 			name="test words",
-			tensor_cache_category_subset_cycle=tensor_cache_category_set.get_tensor_cache_category_subset_cycle(),
+			tensor_cache_category_subset_cycle=tensor_cache.get_tensor_cache_category_subset_cycle(),
 			cache_length=1000,
 			is_cuda=False,
 			is_decaching=False,
@@ -429,11 +451,7 @@ class TensorCacheTest(unittest.TestCase):
 
 		tensor_cache.clear()
 
-		tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
-			name="nabeel965/handwritten-words-dataset",
-			input_tensor_size=(146, 80),
-			output_tensor_size=(None,)
-		)
+		input_tensor_size = (1, 80, 146)
 
 		word_directory_path_per_word = {}  # type: Dict[str, str]
 		for subset_name in ["Capital", "small"]:
@@ -441,15 +459,29 @@ class TensorCacheTest(unittest.TestCase):
 				word_directory_path = os.path.join(dataset_directory_path, subset_name, directory_name, directory_name)
 				word_directory_path_per_word[directory_name] = word_directory_path
 
+		tensor_cache_category_set_per_output_tensor_size = {}  # type: Dict[Tuple[int, ...], TensorCacheCategorySet]
+
 		for word, word_directory_path in word_directory_path_per_word.items():
-			capital_boxing_tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
+			output_tensor = torch.LongTensor([
+				get_index_from_character(
+					character=x,
+					character_set=CharacterSetEnum.English
+				) for x in word
+			] + [0])
+
+			output_tensor_size = tuple(output_tensor.shape)
+			if output_tensor_size not in tensor_cache_category_set_per_output_tensor_size:
+				tensor_cache_category_set = tensor_cache.create_tensor_cache_category_set(
+					name="nabeel965/handwritten-words-dataset",
+					input_tensor_size=input_tensor_size,
+					output_tensor_size=output_tensor_size
+				)
+				tensor_cache_category_set_per_output_tensor_size[output_tensor_size] = tensor_cache_category_set
+
+			tensor_cache_category_set = tensor_cache_category_set_per_output_tensor_size[output_tensor_size]
+			tensor_cache_category_subset = tensor_cache_category_set.create_tensor_cache_category_subset(
 				name=word,
-				output_tensor=torch.LongTensor([
-					get_index_from_character(
-						character=x,
-						character_set=CharacterSetEnum.English
-					) for x in word
-				] + [0])
+				output_tensor=output_tensor
 			)
 
 			for file_name in os.listdir(word_directory_path):
@@ -458,7 +490,7 @@ class TensorCacheTest(unittest.TestCase):
 				image_tensor = get_float_tensor_from_image(
 					image=image
 				)
-				capital_boxing_tensor_cache_category_subset.create_tensor_cache_element_input(
+				tensor_cache_category_subset.create_tensor_cache_element_input(
 					input_tensor=image_tensor
 				)
 
@@ -484,7 +516,7 @@ class TensorCacheTest(unittest.TestCase):
 
 		module_input = TensorCacheCategorySubsetCycleRunner(
 			name="test words",
-			tensor_cache_category_subset_cycle=tensor_cache_category_set.get_tensor_cache_category_subset_cycle(),
+			tensor_cache_category_subset_cycle=tensor_cache.get_tensor_cache_category_subset_cycle(),
 			cache_length=1000,
 			is_cuda=False,
 			is_decaching=False,

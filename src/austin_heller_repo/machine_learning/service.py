@@ -347,23 +347,20 @@ class ServiceStructure(Structure, ABC):
 		if not isinstance(client_server_message, AddTrainingDataAnnouncementServiceClientServerMessage):
 			raise Exception(f"Unexpected message type: {client_server_message.__class__.get_client_server_message_type()}")
 		else:
-			if client_server_message.get_training_data_purpose_type() == TrainingDataPurposeTypeEnum.Training:
-				try:
-					self.add_training_data(
-						category_set_name=client_server_message.get_category_set_name(),
-						category_subset_name=client_server_message.get_category_subset_name(),
-						module_input=client_server_message.get_module_input(),
-						module_output=client_server_message.get_module_output(),
-						purpose=client_server_message.get_training_data_purpose_type()
-					)
-					if self.__is_debug:
-						print(f"{datetime.utcnow()}: success: added training data from {structure_influence.get_source_uuid()} for purpose {client_server_message.get_training_data_purpose_type().value}.")
-				except Exception as ex:
-					if self.__is_debug:
-						print(f"{datetime.utcnow()}: ex: {ex}.")
-					raise
-			else:
-				raise Exception(f"Unexpected training data purpose type: {client_server_message.get_training_data_purpose_type()}.")
+			try:
+				self.add_training_data(
+					category_set_name=client_server_message.get_category_set_name(),
+					category_subset_name=client_server_message.get_category_subset_name(),
+					module_input=client_server_message.get_module_input(),
+					module_output=client_server_message.get_module_output(),
+					purpose=client_server_message.get_training_data_purpose_type()
+				)
+				if self.__is_debug:
+					print(f"{datetime.utcnow()}: success: added training data from {structure_influence.get_source_uuid()} for purpose {client_server_message.get_training_data_purpose_type().value}.")
+			except Exception as ex:
+				if self.__is_debug:
+					print(f"{datetime.utcnow()}: ex: {ex}.")
+				raise
 
 	def on_client_connected(self, *, source_uuid: str, source_type: SourceTypeEnum, tag_json: Dict or None):
 		if source_type == ServiceSourceTypeEnum.Client:

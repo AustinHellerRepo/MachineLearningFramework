@@ -7,6 +7,7 @@ import math
 import random
 import time
 import os
+from datetime import datetime
 from ast import literal_eval
 import PIL.Image
 from austin_heller_repo.threading import start_thread, Semaphore
@@ -574,6 +575,13 @@ class TensorCache():
 
 		self.__cache_directory_path = cache_directory_path
 
+		self.__initialize()
+
+	def __initialize(self):
+
+		if not os.path.exists(self.__cache_directory_path):
+			os.mkdir(self.__cache_directory_path)
+
 	def clear(self):
 
 		delete_directory_contents(
@@ -582,11 +590,11 @@ class TensorCache():
 
 	def create_tensor_cache_category_set(self, *, name: str, input_tensor_size: Tuple[int, ...], output_tensor_size: Tuple[int, ...]) -> TensorCacheCategorySet:
 
-		if self.get_tensor_cache_category_set(
+		if len(self.get_tensor_cache_category_sets(
 			name=name,
 			input_tensor_size=input_tensor_size,
 			output_tensor_size=output_tensor_size
-		) is not None:
+		)) != 0:
 
 			raise Exception(f"TensorCache with same name and sizes already exists.")
 
@@ -609,28 +617,36 @@ class TensorCache():
 			tensor_cache_category_set.append_to_index_file_handle(file_handle)
 		return tensor_cache_category_set
 
-	def get_tensor_cache_category_set(self, *, name: str, input_tensor_size: Tuple[int, ...], output_tensor_size: Tuple[int, ...]) -> TensorCacheCategorySet:
+	def get_tensor_cache_category_sets(self, *, name: str, input_tensor_size: Tuple[int, ...], output_tensor_size: Tuple[int, ...]) -> List[TensorCacheCategorySet]:
 
-		tensor_cache_category_set = None  # type: TensorCacheCategorySet
+		tensor_cache_category_sets = []  # type: List[TensorCacheCategorySet]
 		index_file_path = os.path.join(self.__cache_directory_path, "index.idx")
 
 		if os.path.exists(index_file_path):
 			with open(index_file_path, "r") as file_handle:
-				while tensor_cache_category_set is None:
-					is_successful, tensor_cache_category_set = TensorCacheCategorySet.try_read_from_index_file_handle(file_handle)
-					if is_successful:
-						if not (tensor_cache_category_set.get_name() == name and
-								tensor_cache_category_set.get_input_tensor_size() == input_tensor_size and
-								tensor_cache_category_set.get_output_tensor_size() == output_tensor_size):
-							tensor_cache_category_set = None
-					else:
-						break
+				is_successful, tensor_cache_category_set = TensorCacheCategorySet.try_read_from_index_file_handle(file_handle)
+				while is_successful:
+					if ((
+							name is None or
+							tensor_cache_category_set.get_name() == name
+						) and
+						(
+							input_tensor_size is None or
+							tensor_cache_category_set.get_input_tensor_size() == input_tensor_size
+						) and
+						(
+							output_tensor_size is None or
+							tensor_cache_category_set.get_output_tensor_size() == output_tensor_size
+						)):
 
-		return tensor_cache_category_set
+						tensor_cache_category_sets.append(tensor_cache_category_set)
+
+					is_successful, tensor_cache_category_set = TensorCacheCategorySet.try_read_from_index_file_handle(file_handle)
+
+		return tensor_cache_category_sets
 
 	def get_tensor_cache_category_subset_cycle(self) -> TensorCacheCategorySubsetCycle:
 
-		tensor_cache_category_subset_cycle = None  # type: TensorCacheCategorySubsetCycle
 		index_file_path = os.path.join(self.__cache_directory_path, "index.idx")
 
 		tensor_cache_category_subsets = []  # type: List[TensorCacheCategorySubset]
@@ -638,11 +654,12 @@ class TensorCache():
 		if os.path.exists(index_file_path):
 			with open(index_file_path, "r") as file_handle:
 				is_successful, tensor_cache_category_set = TensorCacheCategorySet.try_read_from_index_file_handle(file_handle)
-				if is_successful:
+				if not is_successful:
 					raise Exception(f"Failed to load tensor cache category set.")
-
-				current_tensor_cache_category_subsets = tensor_cache_category_set.get_tensor_cache_category_subsets()
-				tensor_cache_category_subsets.extend(current_tensor_cache_category_subsets)
+				while is_successful:
+					current_tensor_cache_category_subsets = tensor_cache_category_set.get_tensor_cache_category_subsets()
+					tensor_cache_category_subsets.extend(current_tensor_cache_category_subsets)
+					is_successful, tensor_cache_category_set = TensorCacheCategorySet.try_read_from_index_file_handle(file_handle)
 
 		tensor_cache_category_subset_cycle = TensorCacheCategorySubsetCycle(
 			tensor_cache_category_subset_sequences=[
@@ -699,6 +716,9 @@ class TensorCacheCategorySet():
 
 	def create_tensor_cache_category_subset(self, *, name: str, output_tensor: torch.Tensor) -> TensorCacheCategorySubset:
 
+		if output_tensor.shape != self.__output_tensor_size:
+			raise Exception(f"Unexpected output tensor shape {output_tensor.shape} when expected {self.__output_tensor_size}.")
+
 		tensor_cache_category_subset_directory_path = get_unique_directory_path(
 			parent_directory_path=self.__cache_directory_path
 		)
@@ -713,7 +733,8 @@ class TensorCacheCategorySet():
 		tensor_cache_category_subset = TensorCacheCategorySubset(
 			name=name,
 			cache_directory_path=tensor_cache_category_subset_directory_path,
-			output_tensor_file_path=output_tensor_file_path
+			output_tensor_file_path=output_tensor_file_path,
+			input_tensor_size=self.__input_tensor_size
 		)
 
 		index_file_path = os.path.join(self.__cache_directory_path, "index.idx")
@@ -800,11 +821,12 @@ class TensorCacheCategorySubset():
 		Contains a reference to all of the possible inputs for the specific output
 	"""
 
-	def __init__(self, *, name: str, cache_directory_path: str, output_tensor_file_path: str):
+	def __init__(self, *, name: str, cache_directory_path: str, output_tensor_file_path: str, input_tensor_size: Tuple[int, ...]):
 
 		self.__name = name
 		self.__cache_directory_path = cache_directory_path
 		self.__output_tensor_file_path = output_tensor_file_path
+		self.__input_tensor_size = input_tensor_size
 
 		self.__cache_element_index = None  # type: int
 		self.__cache_element_cycle_total = 0  # type: int
@@ -829,6 +851,9 @@ class TensorCacheCategorySubset():
 
 	def create_tensor_cache_element_input(self, input_tensor: torch.Tensor):
 
+		if input_tensor.shape != self.__input_tensor_size:
+			raise Exception(f"Unexpected input tensor shape {input_tensor.shape} when expected {self.__input_tensor_size}.")
+
 		input_tensor_file_path = get_unique_file_path(
 			parent_directory_path=self.__cache_directory_path,
 			extension="tensor"
@@ -844,6 +869,8 @@ class TensorCacheCategorySubset():
 			"\n",
 			self.__output_tensor_file_path,
 			"\n",
+			str(self.__input_tensor_size),
+			"\n"
 		])
 
 	@staticmethod
@@ -853,10 +880,12 @@ class TensorCacheCategorySubset():
 			return False, None
 		cache_directory_path = file_handle.readline().strip()
 		output_tensor_file_path = file_handle.readline().strip()
+		input_tensor_size = literal_eval(file_handle.readline().strip())
 		tensor_cache_category_subset = TensorCacheCategorySubset(
 			name=name,
 			cache_directory_path=cache_directory_path,
-			output_tensor_file_path=output_tensor_file_path
+			output_tensor_file_path=output_tensor_file_path,
+			input_tensor_size=input_tensor_size
 		)
 		return True, tensor_cache_category_subset
 

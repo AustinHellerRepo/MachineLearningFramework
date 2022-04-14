@@ -69,7 +69,7 @@ class FloatTensorModuleInput(ModuleInput):
 	@classmethod
 	def get_from_float_tensor(cls, *, float_tensor: torch.FloatTensor) -> FloatTensorModuleInput:
 		return FloatTensorModuleInput(
-			tensor_list=list(float_tensor.numpy())
+			tensor_list=float_tensor.tolist()
 		)
 
 
@@ -135,7 +135,7 @@ class FloatTensorModuleOutput(ModuleOutput):
 	@classmethod
 	def get_from_float_tensor(cls, *, float_tensor: torch.FloatTensor) -> FloatTensorModuleOutput:
 		return FloatTensorModuleOutput(
-			tensor_list=list(float_tensor.numpy())
+			tensor_list=float_tensor.tolist()
 		)
 
 
@@ -161,7 +161,7 @@ class LongTensorModuleOutput(ModuleOutput):
 	@classmethod
 	def get_from_long_tensor(cls, *, long_tensor: torch.LongTensor) -> LongTensorModuleOutput:
 		return LongTensorModuleOutput(
-			tensor_list=list(long_tensor.numpy())
+			tensor_list=long_tensor.tolist()
 		)
 
 

@@ -4,12 +4,14 @@ from typing import List, Tuple, Dict, Type
 import uuid
 import time
 import torch
+import os
+from datetime import datetime
 from src.austin_heller_repo.machine_learning.common import FloatTensorModuleInput, LongTensorModuleOutput
 from src.austin_heller_repo.machine_learning.service import ServiceStructure, ServiceClientServerMessage, ServiceClientServerMessageTypeEnum, ServiceSourceTypeEnum, TrainingDataPurposeTypeEnum, ClientStructure
 from src.austin_heller_repo.machine_learning.framework import TensorCache, ModuleTrainer, TensorCacheCategorySubsetCycleRunner, Conv2dToLinearToRecurrentToLinearModule, english_character_set, TensorCacheElement
 from src.austin_heller_repo.machine_learning.dataset.dataset import Dataset
 from src.austin_heller_repo.machine_learning.dataset.kaggle.nabeel965_handwritten_words_dataset import Nabeel965HandwrittenWordsDatasetKaggleDataset
-from src.austin_heller_repo.machine_learning.implementation.tensor_cache_module_service import TensorCacheModuleServiceStructureFactory
+from src.austin_heller_repo.machine_learning.implementation.tensor_cache_module_service_structure import TensorCacheModuleServiceStructureFactory
 from austin_heller_repo.socket_queued_message_framework import ServerMessenger, ClientMessenger, HostPointer, ServerSocketFactory, StructureFactory, ClientSocketFactory, Structure, ClientMessengerFactory
 from austin_heller_repo.common import delete_directory_contents
 
@@ -22,6 +24,7 @@ def get_default_datasets() -> List[Dataset]:
 
 dataset_directory_path = "./cache/dataset"
 tensor_directory_path = "./cache/tensor"
+service_tensor_directory_path = "./cache/tensor_service"
 
 
 client_port = 39132
@@ -43,7 +46,7 @@ def get_default_server_messenger() -> ServerMessenger:
 		server_messenger_source_type=ServiceSourceTypeEnum.Service,
 		structure_factory=TensorCacheModuleServiceStructureFactory(
 			tensor_cache=TensorCache(
-				cache_directory_path="./cache/tensor"
+				cache_directory_path=service_tensor_directory_path
 			),
 			module=Conv2dToLinearToRecurrentToLinearModule(
 				input_size=(146, 80),
@@ -88,6 +91,13 @@ def get_default_client_structure() -> ClientStructure:
 
 class ServiceTest(unittest.TestCase):
 
+	@classmethod
+	def setUpClass(cls) -> None:
+
+		delete_directory_contents(
+			directory_path="./cache"
+		)
+
 	def test_initialize(self):
 
 		server_messenger = get_default_server_messenger()
@@ -104,12 +114,36 @@ class ServiceTest(unittest.TestCase):
 		finally:
 			server_messenger.dispose()
 
-	def test_send_dataset(self):
+	def test_connect_and_disconnect_client_to_service(self):
 
 		server_messenger = get_default_server_messenger()
 
 		category_set_name = f"test category set name: {uuid.uuid4()}"
 		category_subset_name = f"test category subset name: {uuid.uuid4()}"
+
+		client_structure = None  # type: ClientStructure
+
+		try:
+			self.assertIsNotNone(server_messenger)
+
+			server_messenger.start_receiving_from_clients()
+
+			client_structure = get_default_client_structure()
+
+			time.sleep(1.0)
+
+			server_messenger.stop_receiving_from_clients()
+
+		finally:
+			server_messenger.dispose()
+			if client_structure is not None:
+				client_structure.dispose()
+
+	def test_send_dataset(self):
+
+		server_messenger = get_default_server_messenger()
+
+		client_structure = None  # type: ClientStructure
 
 		try:
 			self.assertIsNotNone(server_messenger)
@@ -120,12 +154,14 @@ class ServiceTest(unittest.TestCase):
 
 			for dataset in get_default_datasets():
 
-				delete_directory_contents(
-					directory_path=dataset_directory_path
-				)
-				delete_directory_contents(
-					directory_path=tensor_directory_path
-				)
+				if os.path.exists(dataset_directory_path):
+					delete_directory_contents(
+						directory_path=dataset_directory_path
+					)
+				if os.path.exists(tensor_directory_path):
+					delete_directory_contents(
+						directory_path=tensor_directory_path
+					)
 
 				dataset.download_to_directory(
 					directory_path=dataset_directory_path,
@@ -137,56 +173,65 @@ class ServiceTest(unittest.TestCase):
 					tensor_cache_directory_path=tensor_directory_path
 				)
 
-				tensor_cache_category_set = dataset.get_tensor_cache_category_set(
+				tensor_cache_category_sets = dataset.get_tensor_cache_category_sets(
 					tensor_cache_directory_path=tensor_directory_path
 				)
 
-				tensor_cache_category_subset_cycle = tensor_cache_category_set.get_tensor_cache_category_subset_cycle()
-
-				tensor_cache_category_subset_cycle.reset()
-
-				is_successful, tensor_cache_element_lookup = tensor_cache_category_subset_cycle.try_get_next_tensor_cache_element_lookup()
 				index = 0
 
-				while is_successful:
-					tensor_cache_element = TensorCacheElement.get_tensor_cache_element_from_tensor_cache_element_lookup(
-						tensor_cache_element_lookup=tensor_cache_element_lookup,
-						is_cuda=False
-					)
+				for tensor_cache_category_set in tensor_cache_category_sets:
 
-					input_tensor = tensor_cache_element.get_input_tensor()
-					if isinstance(input_tensor, torch.FloatTensor):
-						module_input = FloatTensorModuleInput.get_from_float_tensor(
-							float_tensor=input_tensor
-						)
-					else:
-						raise Exception(f"Unexpected input tensor type: {type(input_tensor)}.")
+					tensor_cache_category_subset_cycle = tensor_cache_category_set.get_tensor_cache_category_subset_cycle()
 
-					output_tensor = tensor_cache_element.get_output_tensor()
-					if isinstance(output_tensor, torch.FloatTensor):
-						module_output = FloatTensorModuleInput.get_from_float_tensor(
-							float_tensor=output_tensor
-						)
-					elif isinstance(output_tensor, torch.LongTensor):
-						module_output = LongTensorModuleOutput.get_from_long_tensor(
-							long_tensor=output_tensor
-						)
-					else:
-						raise Exception(f"Unexpected output tensor type: {type(output_tensor)}.")
-
-					training_data_purpose_type = TrainingDataPurposeTypeEnum.Validation if (index + 1) % 10 == 0 else TrainingDataPurposeTypeEnum.Training
-					client_structure.add_training_data_announcement(
-						category_set_name=category_set_name,
-						category_subset_name=category_subset_name,
-						module_input=module_input,
-						module_output=module_output,
-						training_data_purpose_type=training_data_purpose_type
-					)
+					tensor_cache_category_subset_cycle.reset()
 
 					is_successful, tensor_cache_element_lookup = tensor_cache_category_subset_cycle.try_get_next_tensor_cache_element_lookup()
-					index += 1
 
+					while is_successful:
+						tensor_cache_element = TensorCacheElement.get_tensor_cache_element_from_tensor_cache_element_lookup(
+							tensor_cache_element_lookup=tensor_cache_element_lookup,
+							is_cuda=False
+						)
+
+						input_tensor = tensor_cache_element.get_input_tensor()
+						if isinstance(input_tensor, torch.FloatTensor):
+							module_input = FloatTensorModuleInput.get_from_float_tensor(
+								float_tensor=input_tensor
+							)
+						else:
+							raise Exception(f"Unexpected input tensor type: {type(input_tensor)}.")
+
+						output_tensor = tensor_cache_element.get_output_tensor()
+						if isinstance(output_tensor, torch.FloatTensor):
+							module_output = FloatTensorModuleInput.get_from_float_tensor(
+								float_tensor=output_tensor
+							)
+						elif isinstance(output_tensor, torch.LongTensor):
+							module_output = LongTensorModuleOutput.get_from_long_tensor(
+								long_tensor=output_tensor
+							)
+						else:
+							raise Exception(f"Unexpected output tensor type: {type(output_tensor)}.")
+
+						training_data_purpose_type = TrainingDataPurposeTypeEnum.Validation if (index + 1) % 10 == 0 else TrainingDataPurposeTypeEnum.Training
+						client_structure.add_training_data_announcement(
+							category_set_name=tensor_cache_category_set.get_name(),
+							category_subset_name=tensor_cache_element_lookup.get_tensor_cache_category_subset().get_name(),
+							module_input=module_input,
+							module_output=module_output,
+							training_data_purpose_type=training_data_purpose_type
+						)
+
+						is_successful, tensor_cache_element_lookup = tensor_cache_category_subset_cycle.try_get_next_tensor_cache_element_lookup()
+						index += 1
+
+						if index % 1000 == 0:
+							print(f"{datetime.utcnow()}: sent {index} training data")
+
+			print(f"{datetime.utcnow()}: finished sending training data")
 			server_messenger.stop_receiving_from_clients()
 
 		finally:
 			server_messenger.dispose()
+			if client_structure is not None:
+				client_structure.dispose()
