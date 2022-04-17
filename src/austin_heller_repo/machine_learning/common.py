@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Type
 import torch
+import base64
 from austin_heller_repo.common import StringEnum, JsonParsable
 
 
@@ -35,6 +36,9 @@ class ImageModuleInput(ModuleInput):
 
 	def get_image_extension(self) -> str:
 		return self.__image_extension
+
+	def get_image_bytes(self) -> bytes:
+		return base64.b64decode(self.__image_bytes_base64string.encode())
 
 	@classmethod
 	def get_json_parsable_type(cls) -> ModuleInputTypeEnum:
@@ -175,6 +179,18 @@ class LocalizationModuleOutput(ModuleOutput):
 		self.__y = y
 		self.__width = width
 		self.__height = height
+
+		self.__initialize()
+
+	def __initialize(self):
+		if self.__x < 0 or self.__x > 1:
+			raise Exception(f"Localization x must be between 0 and 1.")
+		if self.__y < 0 or self.__y > 1:
+			raise Exception(f"Localization x must be between 0 and 1.")
+		if self.__width < 0 or self.__width > 1:
+			raise Exception(f"Localization x must be between 0 and 1.")
+		if self.__height < 0 or self.__height > 1:
+			raise Exception(f"Localization x must be between 0 and 1.")
 
 	def get_label_index(self) -> int:
 		return self.__label_index
