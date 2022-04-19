@@ -19,7 +19,7 @@ from src.austin_heller_repo.machine_learning.framework import TensorCache, Modul
 from src.austin_heller_repo.machine_learning.dataset.dataset import Dataset
 from src.austin_heller_repo.machine_learning.dataset.kaggle.nabeel965_handwritten_words_dataset import Nabeel965HandwrittenWordsDatasetKaggleDataset
 from src.austin_heller_repo.machine_learning.implementation.tensor_cache_module_service_structure import TensorCacheModuleServiceStructureFactory
-from src.austin_heller_repo.machine_learning.implementation.yolov5_service_structure import YoloV5ServiceStructureFactory
+from src.austin_heller_repo.machine_learning.implementation.yolov5_service_structure import YoloV5ServiceStructureFactory, YoloV5ModelTypeEnum
 from austin_heller_repo.socket_queued_message_framework import ServerMessenger, ClientMessenger, HostPointer, ServerSocketFactory, StructureFactory, ClientSocketFactory, Structure, ClientMessengerFactory
 from austin_heller_repo.common import delete_directory_contents, StringEnum, get_random_rainbow_color
 
@@ -94,6 +94,9 @@ def get_default_server_messenger(*, service_structure_type: ServiceStructureType
 			is_cuda=False,
 			delay_between_training_seconds_total=1.0,
 			is_git_pull_forced=False,
+			image_size=1024,
+			training_batch_size=1,
+			model_type=YoloV5ModelTypeEnum.YoloV5N,
 			is_debug=False
 		)
 	else:
@@ -301,7 +304,13 @@ class ServiceTest(unittest.TestCase):
 
 		used_directory_paths = [
 			"./cache/git/yolov5/service_structure/staged/training/images",
-			"./cache/git/yolov5/service_structure/staged/training/labels"
+			"./cache/git/yolov5/service_structure/staged/training/labels",
+			"./cache/git/yolov5/service_structure/staged/validation/images",
+			"./cache/git/yolov5/service_structure/staged/validation/labels",
+			"./cache/git/yolov5/service_structure/active/training/images",
+			"./cache/git/yolov5/service_structure/active/training/labels",
+			"./cache/git/yolov5/service_structure/active/validation/images",
+			"./cache/git/yolov5/service_structure/active/validation/labels"
 		]
 		for directory_path in used_directory_paths:
 			if os.path.exists(directory_path):
@@ -329,6 +338,8 @@ class ServiceTest(unittest.TestCase):
 				self.assertIsNotNone(server_messenger)
 
 				server_messenger.start_receiving_from_clients()
+
+				time.sleep(0.5)
 
 				client_structure = get_default_client_structure()
 
@@ -386,6 +397,10 @@ class ServiceTest(unittest.TestCase):
 						),
 						training_data_purpose_type=TrainingDataPurposeTypeEnum.Validation if (image_index + 1) % 10 == 0 else TrainingDataPurposeTypeEnum.Training
 					)
+
+					time.sleep(0.1)
+
+				time.sleep(5)
 
 			finally:
 				if client_structure is not None:
