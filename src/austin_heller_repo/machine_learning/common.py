@@ -171,7 +171,7 @@ class LongTensorModuleOutput(ModuleOutput):
 
 class LocalizationModuleOutput(ModuleOutput):
 
-	def __init__(self, *, label_index: int, x: int, y: int, width: int, height: int):
+	def __init__(self, *, label_index: int, x: float, y: float, width: float, height: float):
 		super().__init__()
 
 		self.__label_index = label_index
@@ -195,16 +195,16 @@ class LocalizationModuleOutput(ModuleOutput):
 	def get_label_index(self) -> int:
 		return self.__label_index
 
-	def get_x(self) -> int:
+	def get_x(self) -> float:
 		return self.__x
 
-	def get_y(self) -> int:
+	def get_y(self) -> float:
 		return self.__y
 
-	def get_width(self) -> int:
+	def get_width(self) -> float:
 		return self.__width
 
-	def get_height(self) -> int:
+	def get_height(self) -> float:
 		return self.__height
 
 	@classmethod
@@ -246,4 +246,22 @@ class LocalizationListModuleOutput(ModuleOutput):
 	def get_from_localization_list(cls, *, localization_list: List[LocalizationModuleOutput]) -> LocalizationListModuleOutput:
 		return LocalizationListModuleOutput(
 			localization_json_dicts=[x.to_json() for x in localization_list]
+		)
+
+	@staticmethod
+	def get_from_localization_file(*, file_path: str) -> LocalizationListModuleOutput:
+		localizations = []  # type: List[LocalizationModuleOutput]
+		with open(file_path, "r") as file_handle:
+			for line in file_handle.readlines():
+				line_parts = line.split(" ")
+				localization = LocalizationModuleOutput(
+					label_index=int(line_parts[0]),
+					x=float(line_parts[1]),
+					y=float(line_parts[2]),
+					width=float(line_parts[3]),
+					height=float(line_parts[4])
+				)
+				localizations.append(localization)
+		return LocalizationListModuleOutput.get_from_localization_list(
+			localization_list=localizations
 		)

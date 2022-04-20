@@ -5,11 +5,13 @@ import pathlib
 import venv
 import uuid
 import shutil
+import time
+import tempfile
 from typing import List, Dict, Tuple
 from austin_heller_repo.common import delete_directory_contents, is_directory_empty, StringEnum, SubprocessWrapper
 from austin_heller_repo.threading import Semaphore
 from src.austin_heller_repo.machine_learning.service import ServiceStructure, StructureFactory, TrainingDataPurposeTypeEnum
-from src.austin_heller_repo.machine_learning.common import ModuleInput, ModuleOutput, ImageModuleInput, LocalizationListModuleOutput
+from src.austin_heller_repo.machine_learning.common import ModuleInput, ModuleOutput, ImageModuleInput, LocalizationListModuleOutput, LocalizationModuleOutput
 
 
 # TODO consider using: import logging
@@ -167,7 +169,75 @@ class YoloV5ServiceStructure(ServiceStructure):
 		return model_type_file_name
 
 	def get_module_output(self, *, module_input: ModuleInput) -> ModuleOutput:
-		raise NotImplementedError()
+
+		if not os.path.exists(self.__yolov5_detector_model_file_path):
+			raise Exception(f"Failed to find detector model at \"{self.__yolov5_detector_model_file_path}\".")
+
+		if isinstance(module_input, ImageModuleInput):
+			image_bytes = module_input.get_image_bytes()
+			image_extension = module_input.get_image_extension()
+		else:
+			raise Exception(f"Unexpected {ModuleInput.__name__} type: {type(module_input).__name__}.")
+
+		image_uuid = str(uuid.uuid4())
+		temp_directory = tempfile.TemporaryDirectory()
+
+		try:
+			image_file_path = os.path.join(temp_directory.name, f"{image_uuid}.{image_extension}")
+			print(f"saving temp image to {image_file_path}")
+			with open(image_file_path, "wb") as file_handle:
+				file_handle.write(image_bytes)
+
+			absolute_yolov5_repo_directory_path = os.path.abspath(self.__yolov5_repo_directory_path)
+
+			detector_model_file_path = os.path.abspath(self.__yolov5_detector_model_file_path)
+
+			os.environ['WANDB_SILENT'] = "true"  # stops the 30 second delay at the start
+
+			command = f"cd \"{absolute_yolov5_repo_directory_path}\" ; . \"{self.__yolov5_repo_venv_activation_file_path}\" ; python detect.py --source \"{image_file_path}\" --img {self.__image_size} --weights \"{detector_model_file_path}\" --save-txt --nosave"
+
+			subprocess_wrapper = SubprocessWrapper(
+				command="sh",
+				arguments=["-c", f"{command}"]
+			)
+
+			exit_code, output = subprocess_wrapper.run()
+
+			print(f"exit_code: {exit_code}")
+			print(f"output: {output}")
+
+			localization_list_module_output = None  # type: LocalizationListModuleOutput
+
+			if exit_code == 0:
+				output_lines = output.split("\n")
+				if len(output_lines) > 3 and output_lines[-3].startswith("Results saved to "):
+					output_line = output_lines[-3]
+					saved_detection_path_part = output_line[output_line.index("runs/detect/exp"):][:-4]
+
+					saved_detection_directory_path = os.path.join(self.__yolov5_repo_directory_path, saved_detection_path_part)
+					saved_detection_labels_directory_path = os.path.join(saved_detection_directory_path, "labels")
+
+					if not os.path.exists(saved_detection_labels_directory_path):
+						raise Exception(f"Failed to find detection labels path at: \"{saved_detection_labels_directory_path}\".")
+
+					for file_name in os.listdir(saved_detection_labels_directory_path):
+						file_path = os.path.join(saved_detection_labels_directory_path, file_name)
+						if localization_list_module_output is not None:
+							raise Exception(f"Unexpected additional file in output directory: \"{file_path}\".")
+						localization_list_module_output = LocalizationListModuleOutput.get_from_localization_file(
+							file_path=file_path
+						)
+					else:
+						if localization_list_module_output is None:
+							localization_list_module_output = LocalizationListModuleOutput.get_from_localization_list(
+								 localization_list=[]
+							)
+
+			print(f"localization_list_module_output: {localization_list_module_output}")
+			return localization_list_module_output
+
+		finally:
+			temp_directory.cleanup()
 
 	def add_training_data(self, *, category_set_name: str, category_subset_name: str, module_input: ModuleInput, module_output: ModuleOutput, purpose: TrainingDataPurposeTypeEnum):
 

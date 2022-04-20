@@ -300,7 +300,7 @@ class ServiceTest(unittest.TestCase):
 
 		server_messenger.dispose()
 
-	def test_yolov5_service_structure_send_training_data(self):
+	def test_yolov5_service_structure_send_training_data_then_detect(self):
 
 		used_directory_paths = [
 			"./cache/git/yolov5/service_structure/staged/training/images",
@@ -400,7 +400,43 @@ class ServiceTest(unittest.TestCase):
 
 					time.sleep(0.1)
 
-				time.sleep(5)
+				while not os.path.exists("./cache/git/yolov5/models/detector.pt"):
+					time.sleep(1.0)
+
+				# test detection
+
+				image = PIL.Image.new("RGB", image_size, color=(0, 0, 0))
+				image_font = random_instance.choice(image_fonts)  # type: PIL.ImageFont
+
+				text_size = image_font.getsize("test")
+				text_location = (
+					random_instance.randrange(image_size[0] - text_size[0]),
+					random_instance.randrange(image_size[1] - text_size[1])
+				)
+				text_color_float = get_random_rainbow_color(
+					random_instance=random_instance
+				)
+				text_color = tuple([round(x * 255) for x in text_color_float])
+
+				draw_image = PIL.ImageDraw.Draw(image)
+				draw_image.text(text_location, "test",
+								fill=text_color,
+								font=image_font)
+
+				image_bytes = BytesIO()
+				image_extension = "png"
+				image.save(image_bytes, format=image_extension)
+				image_bytes_base64string = base64.b64encode(image_bytes.getvalue()).decode()
+
+				localization_list_module_output = client_structure.send_detection_request(
+					module_input=ImageModuleInput(
+						image_bytes_base64string=image_bytes_base64string,
+						image_extension=image_extension
+					)
+				)
+
+				self.assertIsNotNone(localization_list_module_output)
+				self.assertIsInstance(localization_list_module_output, LocalizationListModuleOutput)
 
 			finally:
 				if client_structure is not None:
