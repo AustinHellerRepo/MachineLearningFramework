@@ -1,14 +1,20 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Type
+from io import BytesIO
+import pickle
+from collections import OrderedDict
 import torch
 import base64
+import PIL.Image
+import numpy as np
 from austin_heller_repo.common import StringEnum, JsonParsable
 
 
 class ModuleInputTypeEnum(StringEnum):
 	Image = "image"
 	FloatTensor = "float_tensor"
+	Text = "text"
 
 
 class ModuleInput(JsonParsable, ABC):
@@ -77,6 +83,26 @@ class FloatTensorModuleInput(ModuleInput):
 		)
 
 
+class TextModuleInput(ModuleInput):
+
+	def __init__(self, *, text: str):
+		super().__init__()
+
+		self.__text = text
+
+	def get_text(self) -> str:
+		return self.__text
+
+	@classmethod
+	def get_json_parsable_type(cls) -> ModuleInputTypeEnum:
+		return ModuleInputTypeEnum.Text
+
+	def to_json(self) -> Dict:
+		json_dict = super().to_json()
+		json_dict["text"] = self.__text
+		return json_dict
+
+
 class ModuleOutputTypeEnum(StringEnum):
 	Text = "text"
 	FloatTensor = "float_tensor"
@@ -138,6 +164,7 @@ class FloatTensorModuleOutput(ModuleOutput):
 
 	@classmethod
 	def get_from_float_tensor(cls, *, float_tensor: torch.FloatTensor) -> FloatTensorModuleOutput:
+		# NOTE: use the framework function get_float_tensor_from_image
 		return FloatTensorModuleOutput(
 			tensor_list=float_tensor.tolist()
 		)
@@ -265,3 +292,27 @@ class LocalizationListModuleOutput(ModuleOutput):
 		return LocalizationListModuleOutput.get_from_localization_list(
 			localization_list=localizations
 		)
+
+
+def convert_state_dict_to_json_dict(*, state_dict: OrderedDict) -> Dict:
+	json_dict = {}
+	for element in state_dict:
+		json_dict[element] = state_dict[element].cpu().data.numpy().tolist()
+	return json_dict
+
+
+def convert_json_dict_to_state_dict(*, json_dict: Dict) -> OrderedDict:
+	state_dict = {}
+	for element in json_dict:
+		state_dict[element] = torch.Tensor(json_dict[element])
+	return OrderedDict(state_dict)
+
+
+def convert_state_dict_to_base64string(*, state_dict: OrderedDict) -> str:
+	bytesIo = BytesIO()
+	pickle.dump(state_dict, bytesIo)
+	return base64.b64encode(bytesIo.getvalue()).decode()
+
+
+def convert_base64string_to_state_dict(*, base64string: str) -> OrderedDict:
+	return pickle.loads(base64.b64decode(base64string))

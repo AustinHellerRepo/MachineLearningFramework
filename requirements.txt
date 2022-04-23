@@ -15,3 +15,5 @@ git+https://github.com/AustinHellerRepo/Common
 git+https://github.com/AustinHellerRepo/SocketQueuedMessageFramework
 kaggle
 gitpython
+spacy
+sklearn

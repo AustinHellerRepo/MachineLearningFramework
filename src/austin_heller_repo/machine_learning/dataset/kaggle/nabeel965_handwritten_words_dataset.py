@@ -5,8 +5,7 @@ import torch
 import PIL.Image
 from typing import List, Tuple, Dict
 from austin_heller_repo.common import is_directory_empty, delete_directory_contents
-from src.austin_heller_repo.machine_learning.dataset.kaggle.kaggle_dataset import KaggleDatasetEnum
-from src.austin_heller_repo.machine_learning.dataset.dataset import DatasetSourceEnum, Dataset
+from src.austin_heller_repo.machine_learning.dataset.dataset import DatasetSourceEnum, Dataset, KaggleDatasetEnum
 from src.austin_heller_repo.machine_learning.framework import TensorCache, CharacterSetEnum, get_index_from_character, get_float_tensor_from_image, TensorCacheCategorySet
 
 
@@ -73,8 +72,6 @@ class Nabeel965HandwrittenWordsDatasetKaggleDataset(Dataset):
 		tensor_cache = TensorCache(
 			cache_directory_path=tensor_cache_directory_path
 		)
-
-		tensor_cache.clear()
 
 		input_tensor_size = self.get_tensor_cache_category_set_input_tensor_size()
 

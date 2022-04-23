@@ -3,17 +3,24 @@ import unittest
 import os
 from datetime import datetime
 from typing import List, Tuple, Dict
+import random
+import time
 from src.austin_heller_repo.machine_learning.dataset.kaggle.nabeel965_handwritten_words_dataset import Nabeel965HandwrittenWordsDatasetKaggleDataset, Dataset, TensorCache
+from src.austin_heller_repo.machine_learning.dataset.sklearn.iris_dataset import IrisSklearnDataset
+from src.austin_heller_repo.machine_learning.dataset.kaggle.gpiosenka_100_bird_species_sharpen_dataset import Gpiosenka100BirdSpeciesSharpenKaggleDataset
 from austin_heller_repo.common import delete_directory_contents, get_all_files_in_directory
 
 
-download_directory_path = "./cache/dataset"
-tensor_directory_path = "./cache/tensor"
+#download_directory_path = "./cache/dataset"
+#tensor_directory_path = "./cache/tensor"
+download_directory_path = "/media/austin/extradrive1/cache/dataset"
+tensor_directory_path = "/media/austin/extradrive1/cache/tensor"
 
 
 def get_default_datasets() -> List[Dataset]:
 	return [
-		Nabeel965HandwrittenWordsDatasetKaggleDataset()
+		Nabeel965HandwrittenWordsDatasetKaggleDataset(),
+		IrisSklearnDataset()
 	]
 
 
@@ -108,6 +115,8 @@ class DatasetTest(unittest.TestCase):
 				modified_time = os.path.getmtime(file_path)
 				modified_time_per_file_path[file_path] = modified_time
 
+			time.sleep(0.1)
+
 			# second
 			dataset.download_to_directory(
 				directory_path=download_directory_path,
@@ -126,27 +135,60 @@ class DatasetTest(unittest.TestCase):
 
 	def test_create_tensor_cache_cycle_runner(self):
 
-		for dataset in get_default_datasets():
+		delete_directory_contents(
+			directory_path=download_directory_path
+		)
+		delete_directory_contents(
+			directory_path=tensor_directory_path
+		)
 
-			delete_directory_contents(
-				directory_path=download_directory_path
-			)
-			delete_directory_contents(
-				directory_path=tensor_directory_path
-			)
+		for dataset in get_default_datasets():
 
 			dataset.download_to_directory(
 				directory_path=download_directory_path,
 				is_forced=False
 			)
 
-			dataset.convert_to_tensor(
-				download_directory_path=download_directory_path,
-				tensor_cache_directory_path=tensor_directory_path
-			)
+		datasets = get_default_datasets()
 
-			tensor_cache_category_sets = dataset.get_tensor_cache_category_sets(
-				tensor_cache_directory_path=tensor_directory_path
-			)
+		tensor_cache = TensorCache(
+			cache_directory_path=tensor_directory_path
+		)
 
-			self.assertNotEqual(0, len(tensor_cache_category_sets))
+		for _ in range(len(datasets)**2):
+
+			random.shuffle(datasets)
+			tensor_cache.clear()
+
+			for dataset in datasets:
+
+				dataset.convert_to_tensor(
+					download_directory_path=download_directory_path,
+					tensor_cache_directory_path=tensor_directory_path
+				)
+
+				tensor_cache_category_sets = dataset.get_tensor_cache_category_sets(
+					tensor_cache_directory_path=tensor_directory_path
+				)
+
+				self.assertNotEqual(0, len(tensor_cache_category_sets))
+
+	def backup_test_download_birds(self):
+
+		dataset = Gpiosenka100BirdSpeciesSharpenKaggleDataset()
+
+		dataset.download_to_directory(
+			directory_path=download_directory_path,
+			is_forced=False
+		)
+
+	def backup_test_tensor_cache_birds(self):
+
+		dataset = Gpiosenka100BirdSpeciesSharpenKaggleDataset()
+
+		dataset.convert_to_tensor(
+			download_directory_path=download_directory_path,
+			tensor_cache_directory_path=tensor_directory_path
+		)
+
+# NOTE: consider simply adding any new dataset to the top of this file

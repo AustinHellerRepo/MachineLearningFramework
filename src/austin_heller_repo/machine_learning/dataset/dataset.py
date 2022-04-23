@@ -1,23 +1,56 @@
 from __future__ import annotations
 from typing import List, Tuple, Dict
 from abc import ABC, abstractmethod
-from austin_heller_repo.common import StringEnum
+import os
+import pathlib
+from austin_heller_repo.common import StringEnum, is_directory_empty, delete_directory_contents
 from src.austin_heller_repo.machine_learning.framework import TensorCache, TensorCacheCategorySet, TensorCacheCategorySubsetCycle, TensorCacheCategorySubsetSequence
 from src.austin_heller_repo.machine_learning.service import AddTrainingDataAnnouncementServiceClientServerMessage
 
 
 class DatasetSourceEnum(StringEnum):
 	Kaggle = "kaggle"
+	Sklearn = "sklearn"
 
 
 class DatasetEnum(StringEnum):
 	pass
 
 
+class KaggleDatasetEnum(DatasetEnum):
+	Nabeel965_HandwrittenWordsDataset = "nabeel965_handwritten_words_dataset"
+	Gpiosenka_100BirdSpecies_Sharpen = "gpiosenka_100_bird_species_sharpen"
+
+
+class SklearnDatasetEnum(DatasetEnum):
+	Iris = "iris"
+
+
 class Dataset():
 
 	def __init__(self):
 		pass
+
+	@staticmethod
+	def is_download_required(*, download_directory_path: str, is_forced: bool) -> bool:
+
+		if os.path.exists(download_directory_path) and \
+			not is_directory_empty(
+				directory_path=download_directory_path
+			):
+
+			if is_forced:
+				delete_directory_contents(
+					directory_path=download_directory_path
+				)
+				is_download_required = True
+			else:
+				is_download_required = False
+		else:
+			pathlib.Path(download_directory_path).mkdir(parents=True, exist_ok=True)
+			is_download_required = True
+
+		return is_download_required
 
 	@classmethod
 	@abstractmethod
