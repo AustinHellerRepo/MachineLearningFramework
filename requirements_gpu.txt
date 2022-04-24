@@ -5,9 +5,9 @@ idna==3.3
 numpy==1.22.3
 Pillow==9.1.0
 requests==2.27.1
-torch==1.11.0+cpu
-torchaudio==0.11.0+cpu
-torchvision==0.12.0+cpu
+torch==1.11.0+cu115
+torchaudio==0.11.0+cu115
+torchvision==0.12.0+cu115
 typing_extensions==4.1.1
 urllib3==1.26.9
 git+https://github.com/AustinHellerRepo/Threading

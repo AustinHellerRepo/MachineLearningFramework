@@ -13,8 +13,10 @@ from austin_heller_repo.common import delete_directory_contents, get_all_files_i
 
 #download_directory_path = "./cache/dataset"
 #tensor_directory_path = "./cache/tensor"
-download_directory_path = "/media/austin/extradrive1/cache/dataset"
-tensor_directory_path = "/media/austin/extradrive1/cache/tensor"
+#download_directory_path = "/media/austin/extradrive1/cache/dataset"
+#tensor_directory_path = "/media/austin/extradrive1/cache/tensor"
+download_directory_path = "C:/cache/dataset"
+tensor_directory_path = "C:/cache/tensor"
 
 
 def get_default_datasets() -> List[Dataset]:

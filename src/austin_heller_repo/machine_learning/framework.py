@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import List, Tuple, Dict, TextIO, Type, Union, Callable, Optional, Any
 import torch
 import torch.nn.functional
+import torch.multiprocessing
 from decimal import Decimal, getcontext
 import numpy as np
 import math
@@ -308,14 +309,10 @@ class Conv2dToLinearModule(CustomModule):
 	def forward(self, module_input: torch.FloatTensor):
 
 		#module_output = module_input.view(1, 1, module_input.shape[0], module_input.shape[1])
-		if len(module_input.shape) == 2:
-			module_output = module_input.view(1, self.__input_channel_total, module_input.shape[1], module_input.shape[0])
-		elif len(module_input.shape) == 3:
-			module_output = module_input.view(module_input.shape[0], self.__input_channel_total, module_input.shape[2], module_input.shape[1])
-		elif len(module_input.shape) == 4:
+		if len(module_input.shape) == 4:
 			module_output = module_input  # input already in batch/channel/height/width format
 		else:
-			raise Exception(f"Unexpected input shape: {module_input.shape}.")
+			raise Exception(f"Unexpected input shape: {module_input.shape}. Please provide shape (batches, channels, height, width).")
 
 		for conv2d_module, relu_module, batchnorm_module in zip(self.__conv2d_layers, self.__relu_layers, self.__batchnorm_layers):
 			module_output = batchnorm_module(module_output)
@@ -1017,15 +1014,30 @@ def get_masks_and_padding_masks(*, source: torch.Tensor, target: torch.Tensor, s
 	return source_mask, target_mask, source_padding_mask, target_padding_mask
 
 
-def get_float_tensor_from_image(image: PIL.Image.Image):
+def get_float_tensor_from_image(image: PIL.Image.Image) -> torch.FloatTensor:
 	image_array = np.array(image)
 	image_array_32 = image_array.astype(np.float32)
 	image_tensor = torch.tensor(image_array_32) / 255.0
 	if len(image_tensor.shape) == 2:
-		image_tensor_shaped = image_tensor.unsqueeze(0)
+		image_tensor_shaped = image_tensor.unsqueeze(2)
 	else:
 		image_tensor_shaped = image_tensor
-	return image_tensor_shaped
+	return image_tensor_shaped.view(image_tensor_shaped.shape[2], image_tensor_shaped.shape[1], image_tensor_shaped.shape[0])
+
+
+def get_image_from_float_tensor(float_tensor: torch.FloatTensor) -> PIL.Image.Image:
+	if len(float_tensor.shape) == 4 and float_tensor.shape[0] == 1:
+		image_tensor = float_tensor.squeeze(0)
+	elif len(float_tensor.shape) == 3:
+		image_tensor = float_tensor.view(float_tensor.shape[2], float_tensor.shape[1], float_tensor.shape[0])
+	elif len(float_tensor.shape) == 2:
+		image_tensor = float_tensor.view(1, float_tensor.shape[0], float_tensor.shape[1])
+	else:
+		raise Exception(f"Unexpected float tensor shape: {float_tensor.shape}.")
+
+	image_array = image_tensor.detach().numpy() * 255
+	image_array_uint8 = np.uint8(image_array)
+	return PIL.Image.fromarray(image_array_uint8)
 
 
 class TensorCacheCategorySubsetCycleRunner():
@@ -1102,15 +1114,23 @@ class TensorCacheCategorySubsetCycleRunner():
 						self.__precache_time_sleep_seconds = max(0.01, self.__precache_time_sleep_seconds - 0.01)
 					#time.sleep(0.44)
 					self.__decache_thread_semaphore.acquire()
-					while self.__last_cache_index < self.__tensor_cache_element_lookups_total and self.__last_cache_index - self.__next_cache_index < self.__cache_length:
-						tensor_cache_element_lookup = self.__tensor_cache_element_lookups[self.__last_cache_index]
-						tensor_cache_element = TensorCacheElement.get_tensor_cache_element_from_tensor_cache_element_lookup(
-							tensor_cache_element_lookup=tensor_cache_element_lookup,
-							is_cuda=self.__is_cuda
-						)
-						self.__tensor_cache_element_per_index[self.__last_cache_index] = tensor_cache_element
-						self.__last_cache_index += 1
-					self.__decache_thread_semaphore.release()
+					try:
+						while self.__last_cache_index < self.__tensor_cache_element_lookups_total and self.__last_cache_index - self.__next_cache_index < self.__cache_length:
+							tensor_cache_element_lookup = self.__tensor_cache_element_lookups[self.__last_cache_index]
+							tensor_cache_element = TensorCacheElement.get_tensor_cache_element_from_tensor_cache_element_lookup(
+								tensor_cache_element_lookup=tensor_cache_element_lookup,
+								is_cuda=self.__is_cuda
+							)
+							self.__tensor_cache_element_per_index[self.__last_cache_index] = tensor_cache_element
+							self.__last_cache_index += 1
+
+							# trying to give the dequeue a chance
+							if self.__last_cache_index % 100 == 0:
+								self.__decache_thread_semaphore.release()
+								time.sleep(0.01)
+								self.__decache_thread_semaphore.acquire()
+					finally:
+						self.__decache_thread_semaphore.release()
 
 			self.__precache_thread = start_thread(target=precache_thread_method)
 
@@ -1120,16 +1140,21 @@ class TensorCacheCategorySubsetCycleRunner():
 				while self.__decache_thread_is_running:
 					time.sleep(1)
 					self.__decache_thread_semaphore.acquire()
-					found_cached_tensor_cache_element = True
-					current_index = self.__next_cache_index - 1
-					while found_cached_tensor_cache_element:
-						if current_index not in self.__tensor_cache_element_per_index.keys():
-							found_cached_tensor_cache_element = False
-							self.__last_decached_index = current_index
-						else:
-							del self.__tensor_cache_element_per_index[current_index]
-							current_index -= 1
-					self.__decache_thread_semaphore.release()
+					try:
+						found_cached_tensor_cache_element = True
+						current_index = self.__next_cache_index - 1
+						while found_cached_tensor_cache_element:
+							if current_index not in self.__tensor_cache_element_per_index:
+								found_cached_tensor_cache_element = False
+								self.__last_decached_index = current_index
+							else:
+								if self.__is_cuda:
+									self.__tensor_cache_element_per_index[current_index].get_input_tensor().cpu()
+									self.__tensor_cache_element_per_index[current_index].get_output_tensor().cpu()
+								del self.__tensor_cache_element_per_index[current_index]
+								current_index -= 1
+					finally:
+						self.__decache_thread_semaphore.release()
 
 			if self.__is_decaching:
 				self.__decache_thread = start_thread(target=decache_thread_method)
@@ -1137,10 +1162,12 @@ class TensorCacheCategorySubsetCycleRunner():
 	def reset(self):
 		# decache existing elements
 		self.__decache_thread_semaphore.acquire()
-		while len(self.__tensor_cache_element_per_index.keys()) != 0:
-			index = next(iter(self.__tensor_cache_element_per_index.keys()))
-			del self.__tensor_cache_element_per_index[index]
-		self.__decache_thread_semaphore.release()
+		try:
+			while len(self.__tensor_cache_element_per_index.keys()) != 0:
+				index = next(iter(self.__tensor_cache_element_per_index.keys()))
+				del self.__tensor_cache_element_per_index[index]
+		finally:
+			self.__decache_thread_semaphore.release()
 
 		# reset index pointers
 		self.__next_cache_index = 0
@@ -1712,6 +1739,8 @@ class ModuleTrainer():
 			include_datetime_prefix=True,
 			include_stack=True
 		)
+		if self.__is_cuda:
+			self.__module.cuda().share_memory()
 
 	def __log(self, message: str):
 
@@ -1720,6 +1749,14 @@ class ModuleTrainer():
 				message=message,
 				override_stack_offset=1
 			)
+
+	def get_module(self) -> CustomModule:
+		return self.__module
+
+	@staticmethod
+	def __train(module: CustomModule, module_input: TensorCacheCategorySubsetCycleRunner, learn_rate: float, maximum_batch_size: int, epochs: int, is_categorical: bool, is_recurrent: bool, ignore_category_index: int, is_cuda: bool):
+
+		pass
 
 	def train(self, *, module_input: TensorCacheCategorySubsetCycleRunner, learn_rate: float, maximum_batch_size: int, epochs: int):
 
@@ -1732,34 +1769,38 @@ class ModuleTrainer():
 		else:
 			criterion = torch.nn.MSELoss()
 
+		if self.__is_cuda:
+			criterion.cuda()
+
 		optimizer = torch.optim.SGD(self.__module.parameters(), lr=learn_rate, momentum=0.9)
 
 		self.__log("Setup criterion and optimizers")
 
 		total_loss = 0
 
-		for epoch_index in range(epochs):
+		self.__log("Epoch started")
 
-			self.__log("Epoch started")
+		module_input.reset()
 
-			module_input.reset()
+		self.__log("Reset cycle runner")
 
-			self.__log("Reset cycle runner")
+		module_input_index = 0
+		is_successful = True
+		while is_successful:
 
-			module_input_index = 0
-			is_successful = True
-			while is_successful:
+			self.__log("Starting loop")
 
-				self.__log("Starting loop")
+			is_successful, batch_input_tensor, batch_output_tensor = module_input.try_get_next_tensor_cache_element_batch(
+				maximum_batch_size=maximum_batch_size if not self.__is_recurrent else 1
+			)
+			expected_output = batch_output_tensor.squeeze(dim=0)
 
-				is_successful, batch_input_tensor, batch_output_tensor = module_input.try_get_next_tensor_cache_element_batch(
-					maximum_batch_size=maximum_batch_size if not self.__is_recurrent else 1
-				)
+			self.__log("Pulled tensor cache element")
 
-				self.__log("Pulled tensor cache element")
+			#while is_successful and module_input_index < 100:
+			if is_successful:
 
-				#while is_successful and module_input_index < 100:
-				if is_successful:
+				for epoch_index in range(epochs):
 
 					optimizer.zero_grad()
 
@@ -1769,7 +1810,6 @@ class ModuleTrainer():
 
 						hidden_output = None
 						loss = None
-						expected_output = batch_output_tensor.squeeze(dim=0)
 						for expected_output_element in expected_output:
 
 							module_output, hidden_output = self.__module(batch_input_tensor, hidden_output)
@@ -1786,7 +1826,7 @@ class ModuleTrainer():
 						loss_scalar = 1.0 / len(expected_output)
 					else:
 						module_output = self.__module(batch_input_tensor)
-						loss = criterion(module_output, batch_output_tensor.squeeze(0))
+						loss = criterion(module_output, expected_output)
 						loss_scalar = 1.0
 
 					loss.backward()
@@ -1811,7 +1851,7 @@ class ModuleTrainer():
 						for message_to_message in elapsed_seconds_total_per_message.keys():
 							print(f"{message_to_message}: {elapsed_seconds_total_per_message[message_to_message]}")
 
-			self.__log("Ended loop")
+		self.__log("Ended loop")
 
 		if not self.__is_cuda:
 			if self.__loss is None:
@@ -1933,3 +1973,21 @@ class ModuleTrainer():
 			ignore_category_index=load_dict["ignore_category_index"]
 		)
 		return module_trainer
+
+
+class ImageToImageModuleViewer():
+
+	def __init__(self, *, module: CustomModule):
+
+		self.__module = module
+
+	def view_image(self, *, image: PIL.Image.Image) -> PIL.Image.Image:
+		self.__module.eval()
+		self.__module.cpu()
+		module_input = get_float_tensor_from_image(
+			image=image
+		)
+		module_output = self.__module(module_input.unsqueeze(0))
+		return get_image_from_float_tensor(
+			float_tensor=module_output
+		)
