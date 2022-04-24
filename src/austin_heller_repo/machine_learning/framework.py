@@ -14,6 +14,7 @@ from ast import literal_eval
 import PIL.Image
 import pathlib
 import json
+import uuid
 from abc import ABC, abstractmethod
 from austin_heller_repo.threading import start_thread, Semaphore
 from austin_heller_repo.common import get_unique_directory_path, get_unique_file_path, ElapsedTimerMessageManager, delete_directory_contents, StringEnum
@@ -1212,6 +1213,29 @@ class TensorCacheCategorySubsetCycleRunner():
 
 		return is_successful, batch_input_tensor, batch_output_tensor
 
+	def to_json(self) -> Dict:
+		return {
+			"name": self.__name,
+			"tensor_cache_category_subset_cycle": self.__tensor_cache_category_subset_cycle.to_json(),
+			"cache_length": self.__cache_length,
+			"is_cuda": self.__is_cuda,
+			"is_decaching": self.__is_decaching,
+			"maximum_elements_total": self.__maximum_elements_total
+		}
+
+	@classmethod
+	def parse_json(cls, *, json_dict: Dict) -> TensorCacheCategorySubsetCycleRunner:
+		return cls(
+			name=json_dict["name"],
+			tensor_cache_category_subset_cycle=TensorCacheCategorySubsetCycle.parse_json(
+				json_dict=json_dict["tensor_cache_category_subset_cycle"]
+			),
+			cache_length=json_dict["cache_length"],
+			is_cuda=json_dict["is_cuda"],
+			is_decaching=json_dict["is_decaching"],
+			maximum_elements_total=json_dict["maximum_elements_total"]
+		)
+
 	def dispose(self):
 		self.__polling_thread_is_running = False
 		self.__precache_thread_is_running = False
@@ -1562,6 +1586,18 @@ class TensorCacheCategorySubset():
 	def is_completed(self) -> bool:
 		return self.__cache_element_index is not None and self.__cache_element_index + 1 == len(self.__cache_element_file_paths)
 
+	def to_json(self) -> Dict:
+		return {
+			"name": self.__name,
+			"cache_directory_path": self.__cache_directory_path,
+			"output_tensor_file_path": self.__output_tensor_file_path,
+			"input_tensor_size": self.__input_tensor_size
+		}
+
+	@classmethod
+	def parse_json(cls, *, json_dict: Dict) -> TensorCacheCategorySubset:
+		return cls(**json_dict)
+
 
 class TensorCacheCategorySubsetSequence():
 
@@ -1600,6 +1636,19 @@ class TensorCacheCategorySubsetSequence():
 		return self.__tensor_cache_category_subsets_index is not None and \
 			   self.__tensor_cache_category_subsets_index + 1 == len(self.__tensor_cache_category_subsets) and \
 				self.__tensor_cache_category_subsets[self.__tensor_cache_category_subsets_index].is_completed()
+
+	def to_json(self) -> Dict:
+		return {
+			"tensor_cache_category_subsets": [x.to_json() for x in self.__tensor_cache_category_subsets]
+		}
+
+	@classmethod
+	def parse_json(cls, *, json_dict: Dict) -> TensorCacheCategorySubsetSequence:
+		return cls(
+			tensor_cache_category_subsets=[TensorCacheCategorySubset.parse_json(
+				json_dict=x
+			) for x in json_dict["tensor_cache_category_subsets"]]
+		)
 
 
 class TensorCacheCategorySubsetCycle():
@@ -1645,6 +1694,19 @@ class TensorCacheCategorySubsetCycle():
 			if self.__tensor_cache_category_subset_sequence_index == len(self.__tensor_cache_category_subset_sequences):
 				self.__tensor_cache_category_subset_sequence_index = 0
 		return True, tensor_cache_element_lookup
+
+	def to_json(self) ->  Dict:
+		return {
+			"tensor_cache_category_subset_sequences": [x.to_json() for x in self.__tensor_cache_category_subset_sequences]
+		}
+
+	@classmethod
+	def parse_json(cls, *, json_dict: Dict) -> TensorCacheCategorySubsetCycle:
+		return cls(
+			tensor_cache_category_subset_sequences=[TensorCacheCategorySubsetSequence.parse_json(
+				json_dict=x
+			) for x in json_dict["tensor_cache_category_subset_sequences"]]
+		)
 
 
 class TensorCacheElementLookup():
@@ -1704,10 +1766,10 @@ class TensorCacheElement():
 
 		input_tensor = torch.load(tensor_cache_element_lookup.get_input_file_path())
 		if is_cuda:
-			input_tensor = input_tensor.cuda()
+			input_tensor = input_tensor.cuda().share_memory_()
 		output_tensor = torch.load(tensor_cache_element_lookup.get_output_file_path())
 		if is_cuda:
-			output_tensor = output_tensor.cuda()
+			output_tensor = output_tensor.cuda().share_memory_()
 
 		tensor_cache_element = TensorCacheElement(
 			input_tensor=input_tensor,
@@ -1728,8 +1790,8 @@ class ModuleTrainer():
 		self.__ignore_category_index = ignore_category_index
 		self.__is_debug = is_debug
 
-		self.__elapsed_timer_message_manager = None  # type: ElapsedTimerMessageManager
-		self.__loss = None
+		self.__training_processes = []  # type: List[torch.multiprocessing.Process]
+		self.__training_processes_semaphore = Semaphore()
 
 		self.__initialize()
 
@@ -1754,112 +1816,94 @@ class ModuleTrainer():
 		return self.__module
 
 	@staticmethod
-	def __train(module: CustomModule, module_input: TensorCacheCategorySubsetCycleRunner, learn_rate: float, maximum_batch_size: int, epochs: int, is_categorical: bool, is_recurrent: bool, ignore_category_index: int, is_cuda: bool):
+	def train_process_method(module: CustomModule, tensor_cache_category_subset_cycle_json_dict: Dict, name: str, cache_length: int, learn_rate: float, epochs: int, is_categorical: bool, is_recurrent: bool, ignore_category_index: int, is_cuda: bool):
 
-		pass
+		cycle = TensorCacheCategorySubsetCycle.parse_json(
+			json_dict=tensor_cache_category_subset_cycle_json_dict
+		)
 
-	def train(self, *, module_input: TensorCacheCategorySubsetCycleRunner, learn_rate: float, maximum_batch_size: int, epochs: int):
+		runner = TensorCacheCategorySubsetCycleRunner(
+			name=name,
+			tensor_cache_category_subset_cycle=cycle,
+			cache_length=cache_length,
+			is_cuda=is_cuda,
+			is_decaching=True
+		)
 
-		self.__log("start")
+		try:
+			runner.reset()
 
-		if self.__is_categorical:
-			criterion = torch.nn.CrossEntropyLoss(
-				ignore_index=-100 if self.__ignore_category_index is None else self.__ignore_category_index
-			)
-		else:
-			criterion = torch.nn.MSELoss()
-
-		if self.__is_cuda:
-			criterion.cuda()
-
-		optimizer = torch.optim.SGD(self.__module.parameters(), lr=learn_rate, momentum=0.9)
-
-		self.__log("Setup criterion and optimizers")
-
-		total_loss = 0
-
-		self.__log("Epoch started")
-
-		module_input.reset()
-
-		self.__log("Reset cycle runner")
-
-		module_input_index = 0
-		is_successful = True
-		while is_successful:
-
-			self.__log("Starting loop")
-
-			is_successful, batch_input_tensor, batch_output_tensor = module_input.try_get_next_tensor_cache_element_batch(
-				maximum_batch_size=maximum_batch_size if not self.__is_recurrent else 1
-			)
-			expected_output = batch_output_tensor.squeeze(dim=0)
-
-			self.__log("Pulled tensor cache element")
-
-			#while is_successful and module_input_index < 100:
-			if is_successful:
-
-				for epoch_index in range(epochs):
-
-					optimizer.zero_grad()
-
-					self.__log("Set zero grad")
-
-					if self.__is_recurrent:
-
-						hidden_output = None
-						loss = None
-						for expected_output_element in expected_output:
-
-							module_output, hidden_output = self.__module(batch_input_tensor, hidden_output)
-
-							if self.__is_categorical:
-								module_output = module_output.view(1, -1)
-
-							self.__log("Collected encoder output")
-
-							if loss is None:
-								loss = criterion(module_output, expected_output_element.view(-1))
-							else:
-								loss += criterion(module_output, expected_output_element.view(-1))
-						loss_scalar = 1.0 / len(expected_output)
-					else:
-						module_output = self.__module(batch_input_tensor)
-						loss = criterion(module_output, expected_output)
-						loss_scalar = 1.0
-
-					loss.backward()
-
-					optimizer.step()
-
-					self.__log("Performed loss backward and optimizer steps")
-
-					module_input_index += 1
-
-					if not self.__is_cuda:
-						current_loss = loss.item() * loss_scalar
-						total_loss += current_loss
-
-						self.__log("Appended total loss")
-
-						if module_input_index % 1 == 0:
-							print(f"{module_input_index}: {current_loss}")
-
-					if module_input_index % 100 == 0:
-						elapsed_seconds_total_per_message = self.__elapsed_timer_message_manager.get_elapsed_seconds_total_per_message()
-						for message_to_message in elapsed_seconds_total_per_message.keys():
-							print(f"{message_to_message}: {elapsed_seconds_total_per_message[message_to_message]}")
-
-		self.__log("Ended loop")
-
-		if not self.__is_cuda:
-			if self.__loss is None:
-				self.__loss = total_loss
+			if is_categorical:
+				criterion = torch.nn.CrossEntropyLoss(
+					ignore_index=-100 if ignore_category_index is None else ignore_category_index
+				)
 			else:
-				self.__loss += total_loss
+				criterion = torch.nn.MSELoss()
 
-			self.__log("Appended total loss")
+			if is_cuda:
+				criterion.cuda()
+
+			optimizer = torch.optim.SGD(module.parameters(), lr=learn_rate, momentum=0.9)
+
+			module_input_index = 0
+			is_successful = True
+			while is_successful:
+
+				is_successful, batch_input_tensor, batch_output_tensor = runner.try_get_next_tensor_cache_element_batch(
+					maximum_batch_size=cache_length if not is_recurrent else 1
+				)
+				expected_output = batch_output_tensor.squeeze(dim=0)
+
+				# while is_successful and module_input_index < 100:
+				if is_successful:
+
+					for epoch_index in range(epochs):
+
+						optimizer.zero_grad()
+
+						if is_recurrent:
+
+							hidden_output = None
+							loss = None
+							for expected_output_element in expected_output:
+
+								module_output, hidden_output = module(batch_input_tensor, hidden_output)
+
+								if is_categorical:
+									module_output = module_output.view(1, -1)
+
+								if loss is None:
+									loss = criterion(module_output, expected_output_element.view(-1))
+								else:
+									loss += criterion(module_output, expected_output_element.view(-1))
+						else:
+							module_output = module(batch_input_tensor)
+							loss = criterion(module_output, expected_output)
+
+						loss.backward()
+
+						optimizer.step()
+
+						module_input_index += 1
+		finally:
+			runner.dispose()
+
+	def train(self, *, module_input: TensorCacheCategorySubsetCycle, name: str, cache_length: int, learn_rate: float, epochs: int):
+
+		torch.multiprocessing.set_start_method("spawn", force=True)
+
+		process = torch.multiprocessing.Process(target=self.train_process_method, args=(self.__module, module_input.to_json(), name, cache_length, learn_rate, epochs, self.__is_categorical, self.__is_recurrent, self.__ignore_category_index, self.__is_cuda))
+		process.start()
+		self.__training_processes_semaphore.acquire()
+		self.__training_processes.append(process)
+		self.__training_processes_semaphore.release()
+
+	def wait(self):
+		self.__training_processes_semaphore.acquire()
+		for process in self.__training_processes:
+			process.join()
+		self.__training_processes.clear()
+		self.__training_processes_semaphore.release()
 
 	def test(self, *, module_input: TensorCacheCategorySubsetCycleRunner):
 

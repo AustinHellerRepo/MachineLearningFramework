@@ -3,7 +3,8 @@ import unittest
 import os
 import pathlib
 import torch
-from src.austin_heller_repo.machine_learning.framework import ModuleTrainer, TensorCache, TensorCacheCategorySubsetCycleRunner, SpecificLinearToLinearModule, LinearToConv2dModule, Conv2dToLinearToConv2dModule
+import matplotlib.pyplot as plt
+from src.austin_heller_repo.machine_learning.framework import ModuleTrainer, TensorCache, TensorCacheCategorySubsetCycleRunner, SpecificLinearToLinearModule, LinearToConv2dModule, Conv2dToLinearToConv2dModule, get_image_from_float_tensor, get_float_tensor_from_image
 from src.austin_heller_repo.machine_learning.dataset.sklearn.iris_dataset import IrisSklearnDataset
 
 
@@ -129,3 +130,15 @@ class FrameworkTest(unittest.TestCase):
 			module_input = torch.rand((1, 100, 200))
 			module_output = module(module_input)
 			self.assertEqual((3, 100, 200), module_output.shape)
+
+	def test_float_tensor_to_image_and_back(self):
+
+		expected_float_tensor = torch.rand((3, 100, 120), dtype=torch.float32)
+		image = get_image_from_float_tensor(
+			float_tensor=expected_float_tensor
+		)
+		actual_float_tensor = get_float_tensor_from_image(
+			image=image
+		)
+		is_close = torch.all(torch.isclose(expected_float_tensor, actual_float_tensor, rtol=0.1, atol=0.1))
+		self.assertTrue(is_close)
